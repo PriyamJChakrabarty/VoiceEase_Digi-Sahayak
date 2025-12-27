@@ -1,0 +1,13 @@
+2. Sentiment-Adaptive "Empathy Engine"
+The Concept: Customer support isn't just about logic; it's about emotion. If a user yells "This useless network is down again!", a standard AI saying "Please provide your plan ID" sounds robotic and rude. Your AI should detect the Anger, apologize first, and switch to a calmer, more reassuring tone.
+
+JSON
+
+{
+  "sentiment": "angry",
+  "response_text": "I am truly sorry for the trouble, Sir. Let me fix this immediately..."
+}
+If sentiment == "angry", your code can prefix the TTS output with a soothing preamble or even slightly slow down the speech rate (if gTTS permits, or just add pauses ...).
+
+3. "Predictive" Smart Recharges (Data-Driven Personalization)
+The Concept: Instead of asking "What plan do you want?", the AI proactively looks at the transactions table and says: "Sir, your data usually runs out on the 25th. You typically buy the ₹499 plan. Should I repeat that?"
