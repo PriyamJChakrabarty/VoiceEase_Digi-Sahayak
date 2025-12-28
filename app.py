@@ -17,6 +17,7 @@ from io import BytesIO
 import traceback
 from datetime import datetime
 from faiss_retriever import FAISSRetriever
+from ticket_classifier import TicketClassifier
 
 load_dotenv()
 
@@ -114,6 +115,18 @@ if 'faiss_retriever' not in st.session_state:
         print(f"[WARNING] FAISS initialization failed: {e}")
         st.session_state.faiss_retriever = None
         st.session_state.faiss_enabled = False
+
+# Initialize Ticket Classifier (Smart Tagging/Triage)
+if 'ticket_classifier' not in st.session_state:
+    print("[INFO] Initializing Ticket Classifier...")
+    try:
+        st.session_state.ticket_classifier = TicketClassifier()
+        st.session_state.classifier_enabled = True
+        print("[INFO] Ticket Classifier ready")
+    except Exception as e:
+        print(f"[WARNING] Ticket Classifier initialization failed: {e}")
+        st.session_state.ticket_classifier = None
+        st.session_state.classifier_enabled = False
 
 # FAISS metrics
 if 'total_queries' not in st.session_state:
@@ -309,6 +322,44 @@ def find_relevant_data(user_input, phone):
 def get_ai_response(user_input, phone):
     """Generate AI response using FAISS retrieval first, then LLM fallback"""
     st.session_state.total_queries += 1
+
+    # Step 0: Smart Ticket Classification (Multi-Label Intent + NER)
+    classification_result = None
+    if st.session_state.classifier_enabled and st.session_state.ticket_classifier:
+        try:
+            classification_result = st.session_state.ticket_classifier.classify_query(user_input)
+            print(f"[CLASSIFIER] Tags: {classification_result['tags']} | Priority: {classification_result['priority']}")
+
+            # Display classification results in UI
+            with st.expander("🏷️ Smart Ticket Analysis (AI Tagging & Triage)", expanded=False):
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.metric("Priority", classification_result['priority'],
+                             delta="Urgent" if classification_result['priority'] == "HIGH" else None)
+
+                with col2:
+                    st.metric("Primary Intent", classification_result['primary_intent'].replace('_', ' ').title())
+
+                with col3:
+                    st.metric("Routing", classification_result['routing'].replace('_', ' ').title())
+
+                # Show all detected tags
+                st.caption(f"**Tags:** {', '.join(classification_result['tags'])}")
+
+                # Show extracted entities (NER results)
+                if classification_result['entities']:
+                    entity_str = ", ".join([f"{k}: {v}" for k, v in classification_result['entities'].items()])
+                    st.caption(f"**Entities Detected:** {entity_str}")
+
+                # Show all intents with confidence
+                if classification_result['intents']:
+                    intent_str = ", ".join([f"{i['label']} ({i['confidence']:.0%})" for i in classification_result['intents'][:3]])
+                    st.caption(f"**Detected Intents:** {intent_str}")
+
+        except Exception as e:
+            print(f"[CLASSIFIER ERROR] {e}")
+            classification_result = None
 
     # Step 1: Try FAISS retrieval first (reduces LLM calls by ~70%)
     if st.session_state.faiss_enabled and st.session_state.faiss_retriever:

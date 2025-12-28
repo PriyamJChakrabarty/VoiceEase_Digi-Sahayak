@@ -7,6 +7,7 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from sqlalchemy import text
 from faiss_retriever import FAISSRetriever
+from ticket_classifier import TicketClassifier
 
 load_dotenv()
 
@@ -38,6 +39,15 @@ class TelecomAIAgent:
         except Exception as e:
             print(f"[WARNING] FAISS initialization failed: {e}")
             self.faiss_retriever = None
+
+        # Initialize Ticket Classifier (Smart Tagging/Triage)
+        print("[INFO] Initializing Ticket Classifier...")
+        try:
+            self.ticket_classifier = TicketClassifier()
+            print("[INFO] Ticket Classifier ready")
+        except Exception as e:
+            print(f"[WARNING] Ticket Classifier initialization failed: {e}")
+            self.ticket_classifier = None
 
         # Metrics tracking
         self.total_queries = 0
@@ -246,6 +256,21 @@ class TelecomAIAgent:
     def get_ai_response(self, user_input):
         """Generate AI response using FAISS retrieval first, then LLM fallback"""
         self.total_queries += 1
+
+        # Step 0: Smart Ticket Classification (Multi-Label Intent + NER)
+        if self.ticket_classifier:
+            try:
+                classification_result = self.ticket_classifier.classify_query(user_input)
+                print(f"[CLASSIFIER] Tags: {classification_result['tags']} | Priority: {classification_result['priority']}")
+                print(f"[CLASSIFIER] Primary Intent: {classification_result['primary_intent']} | Routing: {classification_result['routing']}")
+
+                # Show extracted entities (NER results)
+                if classification_result['entities']:
+                    entity_str = ", ".join([f"{k}:{v}" for k, v in classification_result['entities'].items()])
+                    print(f"[CLASSIFIER] Entities: {entity_str}")
+
+            except Exception as e:
+                print(f"[CLASSIFIER ERROR] {e}")
 
         # Step 1: Try FAISS retrieval first (reduces LLM calls by ~70%)
         if self.faiss_retriever:
