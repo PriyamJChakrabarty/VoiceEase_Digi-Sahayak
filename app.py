@@ -18,6 +18,7 @@ import traceback
 from datetime import datetime
 from faiss_retriever import FAISSRetriever
 from ticket_classifier import TicketClassifier
+from conversation_manager import ConversationManager
 
 load_dotenv()
 
@@ -127,6 +128,16 @@ if 'ticket_classifier' not in st.session_state:
         print(f"[WARNING] Ticket Classifier initialization failed: {e}")
         st.session_state.ticket_classifier = None
         st.session_state.classifier_enabled = False
+
+# Initialize Conversation Manager (Complaint Tracking)
+if 'conv_manager' not in st.session_state:
+    print("[INFO] Initializing Conversation Manager...")
+    try:
+        st.session_state.conv_manager = ConversationManager(engine)
+        print("[INFO] Conversation Manager ready")
+    except Exception as e:
+        print(f"[WARNING] Conversation Manager initialization failed: {e}")
+        st.session_state.conv_manager = None
 
 # FAISS metrics
 if 'total_queries' not in st.session_state:
@@ -328,6 +339,9 @@ def get_ai_response(user_input, phone):
     if st.session_state.classifier_enabled and st.session_state.ticket_classifier:
         try:
             classification_result = st.session_state.ticket_classifier.classify_query(user_input)
+            # Store classification result in session state for conversation tracking
+            classification_result['original_query'] = user_input
+            st.session_state.last_classification = classification_result
             print(f"[CLASSIFIER] Tags: {classification_result['tags']} | Priority: {classification_result['priority']}")
 
             # Display classification results in UI
@@ -669,6 +683,14 @@ if not st.session_state.authenticated:
                 st.session_state.authenticated = True
                 st.session_state.phone = phone_input
                 st.session_state.user_name = user_data[0]
+
+                # Cache user_id for conversation tracking (avoid repeated lookups)
+                with engine.connect() as conn:
+                    result = conn.execute(text("""
+                        SELECT user_id FROM users WHERE phone = :phone
+                    """), {'phone': phone_input})
+                    st.session_state.user_id = result.scalar()
+
                 st.success(f"✅ Account verified! Welcome {user_data[0]}")
                 st.rerun()
             else:
@@ -747,6 +769,36 @@ else:
                             "response": response,
                             "timestamp": time.strftime("%H:%M:%S")
                         })
+
+                        # Save to database with classification metadata
+                        if st.session_state.conv_manager and hasattr(st.session_state, 'user_id'):
+                            try:
+                                classification_result = st.session_state.get('last_classification', {})
+                                if classification_result:
+                                    # Save conversation
+                                    conv_id = st.session_state.conv_manager.save_conversation(
+                                        user_id=st.session_state.user_id,
+                                        phone=st.session_state.phone,
+                                        query=user_query,
+                                        response=response,
+                                        classification_result=classification_result
+                                    )
+
+                                    # Auto-create complaint if applicable
+                                    complaint_id = st.session_state.conv_manager.create_complaint(
+                                        conversation_id=conv_id,
+                                        user_id=st.session_state.user_id,
+                                        phone=st.session_state.phone,
+                                        classification_result=classification_result
+                                    )
+
+                                    if complaint_id:
+                                        dept = st.session_state.conv_manager.COMPLAINT_INTENTS.get(
+                                            classification_result.get('primary_intent', ''), 'Customer Support'
+                                        )
+                                        st.success(f"✅ Complaint #{complaint_id} logged and routed to {dept}")
+                            except Exception as e:
+                                print(f"[ERROR] Failed to save conversation: {e}")
                 else:
                     st.error("❌ Could not understand audio. Please try again or use text input.")
 
@@ -772,6 +824,36 @@ else:
                         "response": response,
                         "timestamp": time.strftime("%H:%M:%S")
                     })
+
+                    # Save to database with classification metadata
+                    if st.session_state.conv_manager and hasattr(st.session_state, 'user_id'):
+                        try:
+                            classification_result = st.session_state.get('last_classification', {})
+                            if classification_result:
+                                # Save conversation
+                                conv_id = st.session_state.conv_manager.save_conversation(
+                                    user_id=st.session_state.user_id,
+                                    phone=st.session_state.phone,
+                                    query=text_query,
+                                    response=response,
+                                    classification_result=classification_result
+                                )
+
+                                # Auto-create complaint if applicable
+                                complaint_id = st.session_state.conv_manager.create_complaint(
+                                    conversation_id=conv_id,
+                                    user_id=st.session_state.user_id,
+                                    phone=st.session_state.phone,
+                                    classification_result=classification_result
+                                )
+
+                                if complaint_id:
+                                    dept = st.session_state.conv_manager.COMPLAINT_INTENTS.get(
+                                        classification_result.get('primary_intent', ''), 'Customer Support'
+                                    )
+                                    st.success(f"✅ Complaint #{complaint_id} logged and routed to {dept}")
+                        except Exception as e:
+                            print(f"[ERROR] Failed to save conversation: {e}")
             else:
                 st.warning("⚠️ Please enter a question")
 

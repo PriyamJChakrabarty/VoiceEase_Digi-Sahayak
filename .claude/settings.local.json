@@ -3,7 +3,8 @@
     "allow": [
       "Bash(python:*)",
       "Bash(pip install:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(if not exist pages mkdir pages)"
     ]
   }
 }
