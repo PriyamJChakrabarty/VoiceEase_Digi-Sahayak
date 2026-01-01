@@ -1,5 +1,5 @@
 """
-Streamlit Frontend for Telecom AI Voice Assistant with FAISS Retrieval
+VoiceEase Digi-Sahayak - Streamlit Frontend for Telecom AI Voice Assistant
 Provides web-based interface with audio recording and playback
 """
 
@@ -39,7 +39,7 @@ except Exception as e:
 
 # Page config
 st.set_page_config(
-    page_title="Smart Telecom Helpline",
+    page_title="VoiceEase Digi-Sahayak",
     page_icon="📞",
     layout="centered",
     initial_sidebar_state="auto"
@@ -47,7 +47,7 @@ st.set_page_config(
 
 # Console startup message
 print("\n" + "="*60)
-print("📞 SMART TELECOM HELPLINE - STREAMLIT APP")
+print("📞 VOICEEASE DIGI-SAHAYAK - STREAMLIT APP")
 print("="*60)
 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Application started")
 print(f"Gemini API: {'✓ Configured' if GEMINI_API_KEY else '✗ Missing'}")
@@ -724,7 +724,7 @@ with st.sidebar:
     st.caption(f"🕐 {datetime.now().strftime('%H:%M:%S')}")
 
 # Main UI
-st.markdown('<h1 class="main-header">📞 Smart Telecom Helpline</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">📞 VoiceEase Digi-Sahayak</h1>', unsafe_allow_html=True)
 st.markdown('<p style="text-align: center; color: #666;">AI-Powered Hinglish Voice Assistant</p>', unsafe_allow_html=True)
 
 # Authentication Section
@@ -953,6 +953,6 @@ st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #888; padding: 1rem;">
     <p>🆘 Need help? Call Customer Care: <strong>199 (toll-free)</strong></p>
-    <p style="font-size: 0.8rem;">Smart Telecom Helpline - AI-Powered Voice Assistant</p>
+    <p style="font-size: 0.8rem;">VoiceEase Digi-Sahayak - AI-Powered Voice Assistant</p>
 </div>
 """, unsafe_allow_html=True)

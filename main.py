@@ -1,4 +1,4 @@
-# agent.py - Improved Telecom AI Agent with FAISS Retrieval
+# VoiceEase Digi-Sahayak - Telecom AI Agent with FAISS Retrieval
 import speech_recognition as sr
 from gtts import gTTS
 import pygame
@@ -366,7 +366,7 @@ class TelecomAIAgent:
     def start_conversation(self):
         """Start the conversation"""
         print("="*60)
-        print("         TELECOM AI AGENT STARTED")
+        print("      VOICEEASE DIGI-SAHAYAK STARTED")
         print("="*60)
         print("1. Listen to voice instruction")
         print("2. Type your mobile number when asked")

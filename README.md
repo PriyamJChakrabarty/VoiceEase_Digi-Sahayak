@@ -1,4 +1,4 @@
-# Smart Telecom Helpline: AI Agent
+# VoiceEase Digi-Sahayak
 
 An intelligent Hinglish-speaking voice assistant that makes telecom services simple, accessible, and human-like — no more confusing IVRs or endless menus.
 
