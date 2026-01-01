@@ -7,6 +7,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 import re
 from typing import Dict, List
+from classification_training_data import QUERY_TYPES, GRIEVANCE_TYPES, get_all_training_examples
 
 
 class TicketClassifier:
@@ -25,7 +26,7 @@ class TicketClassifier:
     """
 
     def __init__(self):
-        """Initialize classifier with pre-trained model"""
+        """Initialize classifier with pre-trained model and training data"""
         print("[Ticket Classifier] Initializing...")
 
         # Use same model as FAISS for consistency
@@ -34,7 +35,14 @@ class TicketClassifier:
         # Pre-compute intent embeddings (one-time cost)
         self.intent_embeddings = self._compute_intent_embeddings()
 
-        print("[Ticket Classifier] Ready (Lightweight version - no Flair)")
+        # Load training data and compute type embeddings
+        print("[Ticket Classifier] Loading training data...")
+        self.training_data = get_all_training_examples()
+        self.type_embeddings = self._compute_type_embeddings()
+
+        print(f"[Ticket Classifier] Loaded {len(self.training_data)} training examples")
+        print(f"[Ticket Classifier] Query types: {len(QUERY_TYPES)}, Grievance types: {len(GRIEVANCE_TYPES)}")
+        print("[Ticket Classifier] Ready (Enhanced with robust training data)")
 
     def _compute_intent_embeddings(self):
         """Pre-compute embeddings for all supported intents"""
@@ -59,6 +67,40 @@ class TicketClassifier:
 
         return embeddings
 
+    def _compute_type_embeddings(self):
+        """Pre-compute embeddings for all query and grievance types"""
+        type_embeddings = {}
+
+        # Query types
+        for type_key, type_info in QUERY_TYPES.items():
+            # Create rich description from name + description + examples
+            description_text = f"{type_info['name']}. {type_info['description']}. Examples: {', '.join(type_info['examples'][:3])}"
+            emb = self.model.encode(description_text, convert_to_numpy=True)
+            emb = emb / np.linalg.norm(emb)  # Normalize
+            type_embeddings[f"QUERY_{type_key}"] = {
+                'embedding': emb,
+                'category': 'QUERY',
+                'type': type_key,
+                'name': type_info['name'],
+                'department': type_info['department']
+            }
+
+        # Grievance types
+        for type_key, type_info in GRIEVANCE_TYPES.items():
+            description_text = f"{type_info['name']}. {type_info['description']}. Examples: {', '.join(type_info['examples'][:3])}"
+            emb = self.model.encode(description_text, convert_to_numpy=True)
+            emb = emb / np.linalg.norm(emb)
+            type_embeddings[f"GRIEVANCE_{type_key}"] = {
+                'embedding': emb,
+                'category': 'GRIEVANCE',
+                'type': type_key,
+                'name': type_info['name'],
+                'department': type_info['department'],
+                'severity': type_info.get('severity', 'MEDIUM')
+            }
+
+        return type_embeddings
+
     def classify_query(self, query: str) -> Dict:
         """
         Main classification function
@@ -70,7 +112,7 @@ class TicketClassifier:
             {
                 "intents": [{"label": "NETWORK_ISSUE", "confidence": 0.89}, ...],
                 "entities": {"amount": "500", "service": "internet", "issue": "slow"},
-                "priority": "HIGH",
+                "category": "GRIEVANCE",  # or "QUERY"
                 "tags": ["NETWORK_ISSUE", "RECHARGE_REQUEST"],
                 "routing": "technical_support"
             }
@@ -81,19 +123,24 @@ class TicketClassifier:
         # Step 2: Pattern-based entity extraction (no Flair needed!)
         entities = self._extract_entities_regex(query)
 
-        # Step 3: Priority/urgency detection
-        priority = self._determine_priority(query, intents)
+        # Step 3: Determine specific type using robust training data
+        type_result = self._determine_type(query)
 
         # Step 4: Routing recommendation
-        routing = self._get_routing(intents, priority)
+        routing = self._get_routing(intents, type_result['category'])
 
         return {
             "intents": intents,
             "entities": entities,
-            "priority": priority,
+            "category": type_result['category'],  # "QUERY" or "GRIEVANCE"
+            "type": type_result['type'],  # Specific type like "BALANCE_CHECK", "NETWORK_CONNECTIVITY"
+            "type_name": type_result['type_name'],  # Human-readable name
+            "department": type_result['department'],  # Department from type matching
+            "confidence": type_result['confidence'],  # Confidence score
             "tags": [i["label"] for i in intents],
             "routing": routing,
-            "primary_intent": intents[0]["label"] if intents else "UNKNOWN"
+            "primary_intent": intents[0]["label"] if intents else "UNKNOWN",
+            "original_query": query
         }
 
     def _detect_intents(self, query: str, threshold: float = 0.25) -> List[Dict]:
@@ -171,33 +218,79 @@ class TicketClassifier:
 
         return entities
 
-    def _determine_priority(self, query: str, intents: List[Dict]) -> str:
+    def _determine_type(self, query: str) -> Dict:
         """
-        Determine urgency/priority for triage
+        Determine specific query/grievance type using semantic similarity with training data
 
-        Returns: "HIGH", "MEDIUM", or "LOW"
+        Args:
+            query: User's input text
+
+        Returns:
+            {
+                'category': 'QUERY' or 'GRIEVANCE',
+                'type': 'BALANCE_CHECK' or 'NETWORK_CONNECTIVITY' etc,
+                'type_name': 'Balance Check' or 'Network Connectivity Issue',
+                'department': 'Customer Support' or 'Network Operations',
+                'confidence': 0.85 (similarity score between 0-1)
+            }
+        """
+        # Encode the user query
+        query_emb = self.model.encode(query, convert_to_numpy=True)
+        query_emb = query_emb / np.linalg.norm(query_emb)
+
+        # Compare against all type embeddings to find best match
+        best_match = None
+        best_score = 0
+
+        for type_key, type_data in self.type_embeddings.items():
+            # Cosine similarity
+            similarity = float(np.dot(query_emb, type_data['embedding']))
+
+            if similarity > best_score:
+                best_score = similarity
+                best_match = type_data
+
+        # Return best match with all details
+        return {
+            'category': best_match['category'],
+            'type': best_match['type'],
+            'type_name': best_match['name'],
+            'department': best_match['department'],
+            'confidence': round(best_score, 2)
+        }
+
+    def _determine_category(self, query: str, intents: List[Dict]) -> str:
+        """
+        Classify as General Query vs Grievance
+
+        Returns: "QUERY" or "GRIEVANCE"
         """
         query_lower = query.lower()
 
-        # HIGH priority keywords
-        urgent_keywords = ['not working', 'stopped', 'failed', 'down', 'emergency', 'urgent', 'immediately', 'nahi chal raha', 'band']
-        if any(keyword in query_lower for keyword in urgent_keywords):
-            return "HIGH"
+        # Grievance keywords (complaints, problems, issues)
+        grievance_keywords = [
+            'not working', 'stopped', 'failed', 'down', 'problem', 'issue',
+            'complaint', 'slow', 'error', 'wrong', 'incorrect', 'missing',
+            'nahi chal raha', 'band', 'kharab', 'galat', 'dikkat'
+        ]
 
-        # HIGH priority intents
-        urgent_intents = ['NETWORK_ISSUE', 'BILLING_COMPLAINT', 'TECHNICAL_SUPPORT']
-        if intents and intents[0]['label'] in urgent_intents:
-            return "HIGH"
+        if any(keyword in query_lower for keyword in grievance_keywords):
+            return "GRIEVANCE"
 
-        # MEDIUM priority
-        medium_intents = ['RECHARGE_REQUEST', 'PLAN_CHANGE', 'SUPPORT_REQUEST']
-        if intents and intents[0]['label'] in medium_intents:
-            return "MEDIUM"
+        # Grievance intent types (problems requiring resolution)
+        grievance_intents = ['NETWORK_ISSUE', 'BILLING_COMPLAINT', 'TECHNICAL_SUPPORT']
+        if intents and intents[0]['label'] in grievance_intents:
+            return "GRIEVANCE"
 
-        # LOW priority (informational queries)
-        return "LOW"
+        # Support requests are grievances if they mention problems
+        if intents and intents[0]['label'] == 'SUPPORT_REQUEST':
+            if any(keyword in query_lower for keyword in ['help', 'problem', 'issue', 'fix']):
+                return "GRIEVANCE"
 
-    def _get_routing(self, intents: List[Dict], priority: str) -> str:
+        # Everything else is a general query (informational/transactional)
+        return "QUERY"
+
+    def _get_routing(self, intents: List[Dict], category: str) -> str:
         """Determine which team/system should handle this"""
         if not intents:
             return "general_support"
@@ -237,8 +330,11 @@ if __name__ == "__main__":
         print(f"Query: {query}")
         result = classifier.classify_query(query)
 
+        print(f"  Category: {result['category']}")
+        print(f"  Type: {result['type']} ({result['type_name']})")
+        print(f"  Department: {result['department']}")
+        print(f"  Confidence: {result['confidence']}")
         print(f"  Tags: {result['tags']}")
-        print(f"  Priority: {result['priority']}")
         print(f"  Entities: {result['entities']}")
         print(f"  Routing: {result['routing']}")
         print()

@@ -10,3 +10,5 @@ pydub
 sentence-transformers
 faiss-cpu
 numpy
+plotly
+pandas

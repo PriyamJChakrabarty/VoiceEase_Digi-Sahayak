@@ -86,6 +86,49 @@ st.markdown("""
         margin: 1rem 0;
         border-left: 4px solid #28a745;
     }
+    .keypad-container {
+        background-color: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin: 1rem auto;
+        max-width: 320px;
+    }
+    .keypad-display {
+        background-color: white;
+        padding: 1rem;
+        border-radius: 8px;
+        font-size: 1.5rem;
+        text-align: center;
+        margin-bottom: 1rem;
+        border: 2px solid #1f77b4;
+        font-family: monospace;
+        letter-spacing: 3px;
+        min-height: 50px;
+    }
+    .keypad-button {
+        width: 100%;
+        height: 60px;
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin: 4px 0;
+        border-radius: 8px;
+        border: none;
+        background-color: white;
+        color: #333;
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: all 0.2s;
+    }
+    .keypad-button:hover {
+        background-color: #e9ecef;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        transform: translateY(-2px);
+    }
+    .keypad-button:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -146,6 +189,72 @@ if 'faiss_hits' not in st.session_state:
     st.session_state.faiss_hits = 0
 if 'llm_calls' not in st.session_state:
     st.session_state.llm_calls = 0
+
+# Greeting audio flag (play only once per session)
+if 'greeting_played' not in st.session_state:
+    st.session_state.greeting_played = False
+
+# Helper function to generate greeting audio
+def generate_greeting_audio():
+    """Generate auto-play greeting audio for login page"""
+    try:
+        greeting_text = "Kripya aapka registered mobile number darj kare"
+        tts = gTTS(text=greeting_text, lang='hi', tld='co.in', slow=False)
+
+        # Save to BytesIO instead of file for better performance
+        audio_buffer = BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+
+        return audio_buffer
+    except Exception as e:
+        print(f"[WARNING] Failed to generate greeting audio: {e}")
+        return None
+
+# Mobile keypad interface
+def render_mobile_keypad():
+    """Render a simple input field styled like a mobile keypad"""
+    st.markdown('<div class="keypad-container">', unsafe_allow_html=True)
+
+    # Simple text input styled to look like mobile display
+    phone_input = st.text_input(
+        "📱 Mobile Number",
+        max_chars=10,
+        placeholder="Enter 10-digit number",
+        key="mobile_number_input",
+        help="Click numbers below or type directly"
+    )
+
+    # Visual keypad for reference (non-functional, just styling)
+    st.markdown("""
+        <div style="text-align: center; margin-top: 1rem;">
+            <div style="display: inline-grid; grid-template-columns: repeat(3, 80px); gap: 10px;">
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">1</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">2</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">3</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">4</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">5</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">6</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">7</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">8</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">9</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">*</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">0</div>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 1.2rem; text-align: center;">#</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Verify button
+    if st.button("✓ Verify Number", key="verify_phone", use_container_width=True, type="primary"):
+        if len(phone_input) == 10 and phone_input.isdigit():
+            return phone_input
+        else:
+            st.error("कृपया 10 अंकों का नंबर दर्ज करें (Please enter 10 digits)")
+
+    return None
 
 # Helper function to log errors
 def log_error(error_type, error_message, details=None):
@@ -342,34 +451,37 @@ def get_ai_response(user_input, phone):
             # Store classification result in session state for conversation tracking
             classification_result['original_query'] = user_input
             st.session_state.last_classification = classification_result
-            print(f"[CLASSIFIER] Tags: {classification_result['tags']} | Priority: {classification_result['priority']}")
+            category = classification_result.get('category', 'QUERY')
+            type_name = classification_result.get('type_name', 'Unknown')
+            department = classification_result.get('department', 'Customer Support')
+            print(f"[CLASSIFIER] Category: {category} | Type: {type_name} | Department: {department}")
 
             # Display classification results in UI
-            with st.expander("🏷️ Smart Ticket Analysis (AI Tagging & Triage)", expanded=False):
+            with st.expander("🏷️ Smart Classification Analysis", expanded=False):
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
-                    st.metric("Priority", classification_result['priority'],
-                             delta="Urgent" if classification_result['priority'] == "HIGH" else None)
+                    category = classification_result.get('category', 'QUERY')
+                    st.metric("Category", category,
+                             delta="Needs Resolution" if category == "GRIEVANCE" else "Informational")
 
                 with col2:
-                    st.metric("Primary Intent", classification_result['primary_intent'].replace('_', ' ').title())
+                    type_name = classification_result.get('type_name', 'Unknown')
+                    confidence = classification_result.get('confidence', 0)
+                    st.metric("Type", type_name, delta=f"{confidence:.0%} confidence")
 
                 with col3:
-                    st.metric("Routing", classification_result['routing'].replace('_', ' ').title())
-
-                # Show all detected tags
-                st.caption(f"**Tags:** {', '.join(classification_result['tags'])}")
+                    department = classification_result.get('department', 'Customer Support')
+                    st.metric("Department", department)
 
                 # Show extracted entities (NER results)
                 if classification_result['entities']:
                     entity_str = ", ".join([f"{k}: {v}" for k, v in classification_result['entities'].items()])
                     st.caption(f"**Entities Detected:** {entity_str}")
 
-                # Show all intents with confidence
-                if classification_result['intents']:
-                    intent_str = ", ".join([f"{i['label']} ({i['confidence']:.0%})" for i in classification_result['intents'][:3]])
-                    st.caption(f"**Detected Intents:** {intent_str}")
+                # Show all intents with confidence (if any detected)
+                if classification_result.get('tags'):
+                    st.caption(f"**Intent Tags:** {', '.join(classification_result['tags'])}")
 
         except Exception as e:
             print(f"[CLASSIFIER ERROR] {e}")
@@ -609,55 +721,7 @@ with st.sidebar:
     st.info(f"✅ TTS: Ready")
 
     st.markdown("---")
-
-    # Session stats
-    st.markdown("#### 📊 Session Stats")
-    st.metric("Gemini API Calls", st.session_state.api_call_count)
-
-    # FAISS metrics
-    if st.session_state.faiss_enabled:
-        faiss_hit_rate = (st.session_state.faiss_hits / st.session_state.total_queries * 100) if st.session_state.total_queries > 0 else 0
-        st.metric("FAISS Hits", f"{st.session_state.faiss_hits}/{st.session_state.total_queries}", delta=f"{faiss_hit_rate:.0f}% hit rate")
-        llm_reduction = (st.session_state.faiss_hits / st.session_state.total_queries * 100) if st.session_state.total_queries > 0 else 0
-        st.metric("LLM Reduction", f"{llm_reduction:.1f}%", delta="Cost savings", delta_color="normal")
-
-    session_mins = (datetime.now() - st.session_state.session_start_time).seconds // 60
-    st.metric("Uptime", f"{session_mins} min")
-
-    if st.session_state.authenticated:
-        st.metric("User", st.session_state.user_name)
-        st.metric("Conversations", len(st.session_state.conversation_history))
-
-    # Error summary
-    error_count = len(st.session_state.error_logs)
-    if error_count > 0:
-        st.markdown("---")
-        st.markdown("#### ⚠️ Errors")
-        st.error(f"{error_count} error(s) logged")
-
-        # Group errors by type
-        error_types = {}
-        for error in st.session_state.error_logs:
-            error_type = error['type']
-            error_types[error_type] = error_types.get(error_type, 0) + 1
-
-        for err_type, count in error_types.items():
-            st.caption(f"• {err_type}: {count}")
-
-    st.markdown("---")
-
-    # Quick links
-    st.markdown("#### 🔗 Quick Links")
-    st.markdown("[Gemini API Console](https://makersuite.google.com)")
-    st.markdown("[Check API Quota](https://makersuite.google.com)")
-    st.markdown("[TiDB Dashboard](https://tidbcloud.com)")
-
-    st.markdown("---")
     st.caption(f"🕐 {datetime.now().strftime('%H:%M:%S')}")
-
-    # Auto-refresh button
-    if st.button("🔄 Refresh Stats"):
-        st.rerun()
 
 # Main UI
 st.markdown('<h1 class="main-header">📞 Smart Telecom Helpline</h1>', unsafe_allow_html=True)
@@ -666,17 +730,21 @@ st.markdown('<p style="text-align: center; color: #666;">AI-Powered Hinglish Voi
 # Authentication Section
 if not st.session_state.authenticated:
     st.markdown("### 🔐 Account Verification")
+
+    # Auto-play greeting (only once per session)
+    if not st.session_state.greeting_played:
+        greeting_audio = generate_greeting_audio()
+        if greeting_audio:
+            st.audio(greeting_audio, format='audio/mp3', autoplay=True)
+            st.session_state.greeting_played = True
+            print("[INFO] Playing auto-greeting: 'Kripya aapka registered mobile number darj kare'")
+
     st.info("Namaskar! Main aap ki telecom assistant hun. Kripaya apna mobile number enter kariye.")
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        phone_input = st.text_input("Enter your 10-digit mobile number", max_chars=10, placeholder="9876543210")
-    with col2:
-        st.write("")
-        st.write("")
-        verify_btn = st.button("Verify")
+    # Mobile keypad interface (type or use visual reference)
+    phone_input = render_mobile_keypad()
 
-    if verify_btn:
+    if phone_input:
         if len(phone_input) == 10 and phone_input.isdigit():
             user_data = get_user_info(phone_input)
             if user_data:
@@ -784,19 +852,23 @@ else:
                                         classification_result=classification_result
                                     )
 
-                                    # Auto-create complaint if applicable
-                                    complaint_id = st.session_state.conv_manager.create_complaint(
+                                    # Auto-create query or grievance record
+                                    record_id = st.session_state.conv_manager.create_record(
                                         conversation_id=conv_id,
                                         user_id=st.session_state.user_id,
                                         phone=st.session_state.phone,
                                         classification_result=classification_result
                                     )
 
-                                    if complaint_id:
-                                        dept = st.session_state.conv_manager.COMPLAINT_INTENTS.get(
-                                            classification_result.get('primary_intent', ''), 'Customer Support'
-                                        )
-                                        st.success(f"✅ Complaint #{complaint_id} logged and routed to {dept}")
+                                    # Show classification to user
+                                    category = classification_result.get('category', 'QUERY')
+                                    type_name = classification_result.get('type_name', 'Unknown')
+                                    department = classification_result.get('department', 'Customer Support')
+
+                                    if category == 'GRIEVANCE':
+                                        st.warning(f"⚠️ **Classified as:** {type_name} → Routed to **{department}**")
+                                    else:
+                                        st.success(f"✅ **Query Type:** {type_name}")
                             except Exception as e:
                                 print(f"[ERROR] Failed to save conversation: {e}")
                 else:
@@ -839,19 +911,23 @@ else:
                                     classification_result=classification_result
                                 )
 
-                                # Auto-create complaint if applicable
-                                complaint_id = st.session_state.conv_manager.create_complaint(
+                                # Auto-create query or grievance record
+                                record_id = st.session_state.conv_manager.create_record(
                                     conversation_id=conv_id,
                                     user_id=st.session_state.user_id,
                                     phone=st.session_state.phone,
                                     classification_result=classification_result
                                 )
 
-                                if complaint_id:
-                                    dept = st.session_state.conv_manager.COMPLAINT_INTENTS.get(
-                                        classification_result.get('primary_intent', ''), 'Customer Support'
-                                    )
-                                    st.success(f"✅ Complaint #{complaint_id} logged and routed to {dept}")
+                                # Show classification to user
+                                category = classification_result.get('category', 'QUERY')
+                                type_name = classification_result.get('type_name', 'Unknown')
+                                department = classification_result.get('department', 'Customer Support')
+
+                                if category == 'GRIEVANCE':
+                                    st.warning(f"⚠️ **Classified as:** {type_name} → Routed to **{department}**")
+                                else:
+                                    st.success(f"✅ **Query Type:** {type_name}")
                         except Exception as e:
                             print(f"[ERROR] Failed to save conversation: {e}")
             else:
@@ -871,60 +947,6 @@ else:
             st.session_state.conversation_history = []
             st.rerun()
 
-    # System Status & Error Logs (visible when authenticated)
-    st.markdown("---")
-    st.markdown("### 📊 System Status")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("API Calls", st.session_state.api_call_count, delta="Free Tier: 15/min")
-
-    with col2:
-        session_duration = (datetime.now() - st.session_state.session_start_time).seconds // 60
-        st.metric("Session Duration", f"{session_duration} min")
-
-    with col3:
-        error_count = len(st.session_state.error_logs)
-        st.metric("Errors", error_count, delta="0 is good" if error_count == 0 else None, delta_color="inverse")
-
-    # Display error logs if any
-    if st.session_state.error_logs:
-        with st.expander(f"⚠️ Error Logs ({len(st.session_state.error_logs)} errors)", expanded=False):
-            st.warning("**Recent errors detected. Click entries below for details.**")
-
-            for i, error in enumerate(reversed(st.session_state.error_logs[-10:])):  # Show last 10 errors
-                error_color = "🔴" if "RATE_LIMIT" in error['type'] or "AUTH" in error['type'] else "🟡"
-
-                with st.expander(f"{error_color} [{error['timestamp']}] {error['type']}"):
-                    st.markdown(f"**Message:** {error['message']}")
-                    if error['details']:
-                        st.code(error['details'], language="text")
-
-            if st.button("🗑️ Clear Error Logs"):
-                st.session_state.error_logs = []
-                st.rerun()
-
-    # API Usage Info
-    with st.expander("ℹ️ API Usage & Limits"):
-        st.markdown("""
-        **Gemini API Free Tier:**
-        - 15 requests per minute
-        - 1,500 requests per day
-        - Current session: {calls} API calls
-
-        **Google Speech Recognition:**
-        - 60 minutes per month (free)
-        - Resets monthly
-
-        **gTTS (Text-to-Speech):**
-        - Unlimited & free
-        - No API key required
-
-        **Need more quota?**
-        - Gemini: https://makersuite.google.com
-        - Speech API: https://cloud.google.com/speech-to-text
-        """.format(calls=st.session_state.api_call_count))
 
 # Footer (visible to all)
 st.markdown("---")
